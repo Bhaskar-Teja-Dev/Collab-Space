@@ -11,6 +11,7 @@
   "scripts": {
     "dev": "concurrently -n client,server -c cyan,yellow \"npm run dev --workspace=client\" \"npm run dev --workspace=server\"",
     "build": "npm run build --workspace=shared && npm run build --workspace=server && npm run build --workspace=client",
+    "build:client": "npm run build --workspace=shared && npm run build --workspace=client",
     "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
