@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "buildCommand": "cd ../shared && npm run build && cd ../client && vite build",
+  "outputDirectory": "dist",
+  "framework": "vite"
+}
