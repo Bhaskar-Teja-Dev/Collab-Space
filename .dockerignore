@@ -1,0 +1,12 @@
+node_modules
+client
+.git
+.env
+dist
+build
+.vercel
+CVS
+.DS_Store
+.gemini
+.agents
+*.md
