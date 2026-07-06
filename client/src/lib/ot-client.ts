@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OT Client — browser-side operational transformation helper.
  *
  * Responsibilities:
@@ -85,8 +85,11 @@ export class OTClient {
   /** The version we have confirmed from the server (last acked). */
   version: number = 0;
 
-  /** Op submitted to server but not yet acknowledged. */
+  /** Op currently in flight (submitted to server but not yet acknowledged). */
   pendingOp: Operation | null = null;
+
+  /** Queue of all operations generated locally but not yet acknowledged. */
+  queue: Operation[] = [];
 
   /** Stable identifier for this browser tab. */
   readonly clientId: string;
@@ -97,7 +100,7 @@ export class OTClient {
 
   /**
    * Submit an operation to the server.
-   * Stores it as pending so we can transform incoming remote ops against it.
+   * Pushes the operation to the local queue and fires it if no other op is in flight.
    */
   submit(
     op: Operation,
@@ -105,6 +108,20 @@ export class OTClient {
     documentId: string,
     socket: Socket
   ): void {
+    this.queue.push(op);
+
+    if (!this.pendingOp) {
+      this.sendNext(roomId, documentId, socket);
+    }
+  }
+
+  /**
+   * Send the next operation in the queue to the server.
+   */
+  private sendNext(roomId: string, documentId: string, socket: Socket): void {
+    if (this.queue.length === 0) return;
+
+    const op = this.queue[0];
     this.pendingOp = op;
 
     const versioned: VersionedOperation = {
@@ -119,29 +136,31 @@ export class OTClient {
   }
 
   /**
-   * Called when the server ACKs our submitted op.
-   * Advance the version counter, clear the pending op.
+   * Called when the server ACKs our in-flight op.
+   * Advance the version counter, remove the op from queue, and send the next one.
    */
-  handleAck(ack: OperationAck): void {
+  handleAck(ack: OperationAck, roomId: string, documentId: string, socket: Socket): void {
     this.version = ack.newVersion;
+    this.queue.shift(); // Remove the acknowledged operation
     this.pendingOp = null;
+
+    // Process the next operation in the queue
+    this.sendNext(roomId, documentId, socket);
   }
 
   /**
    * Called when a remote op broadcast arrives.
    *
-   * If we have a pending op (submitted but not yet acked), we must transform
-   * the incoming op against our pending op before applying it to local text.
-   * This preserves the user's in-flight edit.
+   * We transform the incoming remote op against all local operations currently
+   * buffered in our queue (both the in-flight op and any queued ones).
    *
-   * Returns the (possibly transformed) op that should be applied to local state.
+   * Returns the transformed op that should be applied to local text.
    */
   handleBroadcast(incomingOp: Operation): Operation {
-    if (!this.pendingOp) {
-      return incomingOp;
+    let current = incomingOp;
+    for (const localOp of this.queue) {
+      current = transformOp(current, localOp);
     }
-
-    // Transform incoming op so it can be applied after our pending local op.
-    return transformOp(incomingOp, this.pendingOp);
+    return current;
   }
 }

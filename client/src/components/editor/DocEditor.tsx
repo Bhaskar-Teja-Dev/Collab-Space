@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { SOCKET_EVENTS, type Operation, type OperationAck } from '@collab-space/shared';
 import { applyOp } from '@collab-space/shared';
 import { getSocket } from '../../lib/socket';
@@ -82,7 +82,7 @@ export default function DocEditor({ roomId, documentId }: Props) {
     // ACK from server
     const handleOpAck = (ack: OperationAck) => {
       if (ack.documentId !== documentId) return;
-      otClient.handleAck(ack);
+      otClient.handleAck(ack, roomId ?? '', documentId, socket);
       // Clear syncing after a brief visual delay
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = setTimeout(() => setIsSyncing(false), 400);
@@ -98,25 +98,39 @@ export default function DocEditor({ roomId, documentId }: Props) {
       socket.off(SOCKET_EVENTS.OP_ACK, handleOpAck);
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
     };
-  }, [documentId, updateContent, autoResize]);
+  }, [roomId, documentId, updateContent, autoResize]);
 
-  // Handle textarea changes — compute diff, submit op
+  // Process local edits sequentially to handle replacements (delete then insert)
+  const processNextPendingOp = useCallback(() => {
+    const ta = textareaRef.current;
+    if (!ta || !roomId || !documentId) return;
+    const newVal = ta.value;
+    const oldVal = contentRef.current;
+    if (newVal === oldVal) return;
+
+    const op = diffToOp(oldVal, newVal);
+    if (op) {
+      const nextLocalState = applyOp(oldVal, op);
+      updateContent(nextLocalState);
+
+      const socket = getSocket();
+      setIsSyncing(true);
+      otClientRef.current.submit(op, roomId, documentId, socket);
+
+      // If additional diff remains (e.g. an insert following a delete), schedule next check
+      if (ta.value !== nextLocalState) {
+        setTimeout(processNextPendingOp, 50);
+      }
+    }
+  }, [roomId, documentId, updateContent]);
+
+  // Handle textarea changes — trigger the diff processor loop
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      const newVal = e.target.value;
-      const oldVal = contentRef.current;
-
-      const op = diffToOp(oldVal, newVal);
-      updateContent(newVal);
       autoResize();
-
-      if (op && roomId && documentId) {
-        const socket = getSocket();
-        setIsSyncing(true);
-        otClientRef.current.submit(op, roomId, documentId, socket);
-      }
+      processNextPendingOp();
     },
-    [roomId, documentId, updateContent, autoResize]
+    [autoResize, processNextPendingOp]
   );
 
   // Toolbar: insert markdown syntax at cursor position
@@ -131,25 +145,20 @@ export default function DocEditor({ roomId, documentId }: Props) {
       const newContent =
         content.slice(0, start) + before + selected + after + content.slice(end);
 
-      // Trigger as if it were a real change
-      const op = diffToOp(contentRef.current, newContent);
-      updateContent(newContent);
+      // Set value on raw element to trigger diff calculation
+      ta.value = newContent;
       autoResize();
 
-      // Restore cursor
+      // Restore cursor position
       requestAnimationFrame(() => {
         ta.selectionStart = start + before.length;
         ta.selectionEnd = end + before.length;
         ta.focus();
       });
 
-      if (op && roomId && documentId) {
-        const socket = getSocket();
-        setIsSyncing(true);
-        otClientRef.current.submit(op, roomId, documentId, socket);
-      }
+      processNextPendingOp();
     },
-    [content, roomId, documentId, updateContent, autoResize]
+    [content, autoResize, processNextPendingOp]
   );
 
   const insertLinePrefix = useCallback(
@@ -159,21 +168,19 @@ export default function DocEditor({ roomId, documentId }: Props) {
       const start = ta.selectionStart;
       const lineStart = content.lastIndexOf('\n', start - 1) + 1;
       const newContent = content.slice(0, lineStart) + prefix + content.slice(lineStart);
-      const op = diffToOp(contentRef.current, newContent);
-      updateContent(newContent);
+      
+      ta.value = newContent;
       autoResize();
+      
       requestAnimationFrame(() => {
         ta.selectionStart = start + prefix.length;
         ta.selectionEnd = ta.selectionStart;
         ta.focus();
       });
-      if (op && roomId && documentId) {
-        const socket = getSocket();
-        setIsSyncing(true);
-        otClientRef.current.submit(op, roomId, documentId, socket);
-      }
+
+      processNextPendingOp();
     },
-    [content, roomId, documentId, updateContent, autoResize]
+    [content, autoResize, processNextPendingOp]
   );
 
   const version = otClientRef.current.version;
@@ -303,14 +310,12 @@ export default function DocEditor({ roomId, documentId }: Props) {
             if (!ta) return;
             const pos = ta.selectionStart;
             const newContent = content.slice(0, pos) + '\n---\n' + content.slice(pos);
-            const op = diffToOp(contentRef.current, newContent);
-            updateContent(newContent);
+            
+            ta.value = newContent;
             autoResize();
-            if (op && roomId && documentId) {
-              const socket = getSocket();
-              setIsSyncing(true);
-              otClientRef.current.submit(op, roomId, documentId, socket);
-            }
+            ta.focus();
+            
+            processNextPendingOp();
           }}
           title="Horizontal rule"
           type="button"
