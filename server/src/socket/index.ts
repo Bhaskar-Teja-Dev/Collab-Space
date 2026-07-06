@@ -17,9 +17,24 @@ export interface AuthenticatedSocket extends Socket {
 }
 
 export function initSocketServer(httpServer: HttpServer): SocketServer {
+  const allowedOrigins = [
+    process.env.CLIENT_ORIGIN,
+    'http://localhost:5173',
+    'http://localhost:3000'
+  ].filter(Boolean) as string[];
+
   const io = new SocketServer(httpServer, {
     cors: {
-      origin: process.env.CLIENT_ORIGIN ?? 'http://localhost:5173',
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        const isAllowed = allowedOrigins.some(allowed => origin === allowed || allowed.replace(/\/$/, '') === origin);
+        const isVercel = /\.vercel\.app$/.test(origin);
+        if (isAllowed || isVercel) {
+          callback(null, true);
+        } else {
+          callback(new Error('Not allowed by CORS'));
+        }
+      },
       credentials: true,
     },
     connectionStateRecovery: {
