@@ -140,7 +140,7 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
-      select: { id: true, email: true, displayName: true, avatarColor: true, createdAt: true },
+      select: { id: true, email: true, displayName: true, avatarColor: true, bio: true, createdAt: true },
     });
 
     if (!user) {
@@ -151,6 +151,61 @@ authRouter.get('/me', requireAuth, async (req, res) => {
     res.json({ user });
   } catch (err) {
     console.error('[auth/me]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── PUT /api/auth/profile — update profile details ──────────────────────────
+
+const UpdateProfileSchema = z.object({
+  displayName:  z.string().min(2).max(32).optional(),
+  avatarColor:  z.string().regex(/^(hsl|#)/).optional(),
+  bio:          z.string().max(200).optional(),
+  newPassword:  z.string().min(8).optional(),
+  currentPassword: z.string().optional(),
+});
+
+authRouter.put('/profile', requireAuth, async (req, res) => {
+  const parsed = UpdateProfileSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten().fieldErrors });
+    return;
+  }
+
+  const { displayName, avatarColor, bio, newPassword, currentPassword } = parsed.data;
+
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user!.userId } });
+    if (!user) { res.status(404).json({ error: 'User not found' }); return; }
+
+    const updateData: Record<string, unknown> = {};
+    if (displayName) updateData.displayName = displayName;
+    if (avatarColor) updateData.avatarColor = avatarColor;
+    if (bio !== undefined) updateData.bio = bio;
+
+    // Password change requires current password verification
+    if (newPassword) {
+      if (!currentPassword) {
+        res.status(400).json({ error: 'Current password is required to change password' });
+        return;
+      }
+      const valid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!valid) {
+        res.status(401).json({ error: 'Current password is incorrect' });
+        return;
+      }
+      updateData.passwordHash = await bcrypt.hash(newPassword, 12);
+    }
+
+    const updated = await prisma.user.update({
+      where: { id: req.user!.userId },
+      data: updateData,
+      select: { id: true, email: true, displayName: true, avatarColor: true, bio: true },
+    });
+
+    res.json({ user: updated });
+  } catch (err) {
+    console.error('[auth/profile]', err);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

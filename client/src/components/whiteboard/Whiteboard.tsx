@@ -3,7 +3,7 @@ import { SOCKET_EVENTS } from '@collab-space/shared';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store/auth';
 import { useToast } from '../ui';
-import { Square, Circle, Edit2, Eraser, Type, Download, Trash2, ArrowUpRight } from 'lucide-react';
+import { Square, Circle, Edit2, Type, Download, Trash2, ArrowUpRight, Undo2, Redo2 } from 'lucide-react';
 import styles from './Whiteboard.module.css';
 
 interface Shape {
@@ -50,7 +50,6 @@ export default function Whiteboard({ roomId }: Props) {
   const [color, setColor] = useState(COLORS[5]); // Blue default
   const [strokeWidth, setStrokeWidth] = useState(5);
   
-  // Drawing states
   const [isDrawing, setIsDrawing] = useState(false);
   const [currentPoints, setCurrentPoints] = useState<number[]>([]);
   const [startPos, setStartPos] = useState({ x: 0, y: 0 });
@@ -59,6 +58,9 @@ export default function Whiteboard({ roomId }: Props) {
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const undoStack = useRef<Shape[][]>([]);
+  const redoStack = useRef<Shape[][]>([]);
 
   // Sync shapes from socket
   useEffect(() => {
@@ -86,7 +88,6 @@ export default function Whiteboard({ roomId }: Props) {
     socket.on(SOCKET_EVENTS.SHAPE_UPDATE, handleShapeUpdate);
     socket.on(SOCKET_EVENTS.SHAPE_DELETE, handleShapeDelete);
 
-    // Join room WB triggers state request implicitly if server already handles join_room
     socket.emit(SOCKET_EVENTS.JOIN_ROOM, { roomId });
 
     return () => {
@@ -97,23 +98,6 @@ export default function Whiteboard({ roomId }: Props) {
     };
   }, [roomId]);
 
-  // Make canvas responsive
-  useEffect(() => {
-    const handleResize = () => {
-      const canvas = canvasRef.current;
-      const container = containerRef.current;
-      if (!canvas || !container) return;
-
-      canvas.width = container.clientWidth;
-      canvas.height = container.clientHeight;
-      drawCanvas();
-    };
-
-    handleResize();
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [shapes, isDrawing, currentPoints, currentPos, startPos, tool, color, strokeWidth]);
-
   // Main drawing engine
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -121,11 +105,9 @@ export default function Whiteboard({ roomId }: Props) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Clear with premium dark background grid
     ctx.fillStyle = '#080c14';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     
-    // Draw dot grid pattern
     ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
     const gridSpacing = 30;
     for (let x = 0; x < canvas.width; x += gridSpacing) {
@@ -136,11 +118,9 @@ export default function Whiteboard({ roomId }: Props) {
       }
     }
 
-    // Set high quality line drawing
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Helper to draw single shape
     const drawShape = (s: Shape) => {
       ctx.strokeStyle = s.color;
       ctx.fillStyle = s.color;
@@ -173,7 +153,6 @@ export default function Whiteboard({ roomId }: Props) {
         ctx.lineTo(x2, y2);
         ctx.stroke();
 
-        // Arrowhead
         const angle = Math.atan2(y2 - s.y, x2 - s.x);
         ctx.beginPath();
         ctx.moveTo(x2, y2);
@@ -187,10 +166,8 @@ export default function Whiteboard({ roomId }: Props) {
       }
     };
 
-    // Draw confirmed shapes
     shapes.forEach(drawShape);
 
-    // Draw active drawing preview
     if (isDrawing) {
       ctx.strokeStyle = color;
       ctx.fillStyle = color;
@@ -230,13 +207,100 @@ export default function Whiteboard({ roomId }: Props) {
     }
   }, [shapes, isDrawing, currentPoints, currentPos, startPos, tool, color, strokeWidth]);
 
-  // Redraw canvas whenever layout/dependencies change
+  // Make canvas responsive
+  useEffect(() => {
+    const handleResize = () => {
+      const canvas = canvasRef.current;
+      const container = containerRef.current;
+      if (!canvas || !container) return;
+
+      canvas.width = container.clientWidth;
+      canvas.height = container.clientHeight;
+      drawCanvas();
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [shapes, isDrawing, currentPoints, currentPos, startPos, tool, color, strokeWidth, drawCanvas]);
+
   useEffect(() => {
     drawCanvas();
   }, [drawCanvas]);
 
+  const handleUndo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop()!;
+    redoStack.current.push(shapes);
+    
+    const socket = getSocket();
+    if (roomId && socket) {
+      const currentIds = new Set(shapes.map(s => s.id));
+      const prevIds = new Set(prev.map(s => s.id));
+      
+      shapes.forEach(s => {
+        if (!prevIds.has(s.id)) {
+          socket.emit(SOCKET_EVENTS.SHAPE_DELETE, { roomId, shapeId: s.id });
+        }
+      });
+      prev.forEach(s => {
+        if (!currentIds.has(s.id)) {
+          socket.emit(SOCKET_EVENTS.SHAPE_ADD, { roomId, shape: s });
+        }
+      });
+    }
+    setShapes(prev);
+  }, [shapes, roomId]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(shapes);
+
+    const socket = getSocket();
+    if (roomId && socket) {
+      const currentIds = new Set(shapes.map(s => s.id));
+      const nextIds = new Set(next.map(s => s.id));
+      
+      next.forEach(s => {
+        if (!currentIds.has(s.id)) {
+          socket.emit(SOCKET_EVENTS.SHAPE_ADD, { roomId, shape: s });
+        }
+      });
+      shapes.forEach(s => {
+        if (!nextIds.has(s.id)) {
+          socket.emit(SOCKET_EVENTS.SHAPE_DELETE, { roomId, shapeId: s.id });
+        }
+      });
+    }
+    setShapes(next);
+  }, [shapes, roomId]);
+
+  // Bind keyboard shortcuts
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement?.tagName;
+      if (active === 'INPUT' || active === 'TEXTAREA') return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleUndo, handleRedo]);
+
   const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (textInput) return; // Typing right now
+    if (textInput) return;
 
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -330,6 +394,8 @@ export default function Whiteboard({ roomId }: Props) {
     }
 
     if (newShape) {
+      undoStack.current.push(shapes);
+      redoStack.current = [];
       setShapes((prev) => [...prev, newShape!]);
       socket.emit(SOCKET_EVENTS.SHAPE_ADD, { roomId, shape: newShape });
     }
@@ -356,6 +422,8 @@ export default function Whiteboard({ roomId }: Props) {
       authorId: user?.id ?? '',
     };
 
+    undoStack.current.push(shapes);
+    redoStack.current = [];
     setShapes((prev) => [...prev, newShape]);
     socket.emit(SOCKET_EVENTS.SHAPE_ADD, { roomId, shape: newShape });
     setTextInput(null);
@@ -365,7 +433,9 @@ export default function Whiteboard({ roomId }: Props) {
     if (!roomId) return;
     const socket = getSocket();
 
-    // Shift+Click clears for everyone by sending delete for each shape
+    undoStack.current.push(shapes);
+    redoStack.current = [];
+
     if (e.shiftKey) {
       if (confirm('Clear whiteboard for all users in this room?')) {
         shapes.forEach((s) => {
@@ -375,7 +445,6 @@ export default function Whiteboard({ roomId }: Props) {
         showToast('Whiteboard cleared for everyone', 'success');
       }
     } else {
-      // Local clear only
       setShapes([]);
       showToast('Cleared your whiteboard screen locally. Shift+Click to clear for all.', 'info');
     }
@@ -431,6 +500,29 @@ export default function Whiteboard({ roomId }: Props) {
             title="Text Tool"
           >
             <Type size={16} />
+          </button>
+        </div>
+
+        <div className={styles.divider} />
+
+        <div className={styles.toolGroup}>
+          <button 
+            className={styles.toolBtn} 
+            onClick={handleUndo} 
+            disabled={undoStack.current.length === 0}
+            title="Undo (Ctrl+Z)"
+            style={{ opacity: undoStack.current.length === 0 ? 0.4 : 1 }}
+          >
+            <Undo2 size={16} />
+          </button>
+          <button 
+            className={styles.toolBtn} 
+            onClick={handleRedo} 
+            disabled={redoStack.current.length === 0}
+            title="Redo (Ctrl+Shift+Z)"
+            style={{ opacity: redoStack.current.length === 0 ? 0.4 : 1 }}
+          >
+            <Redo2 size={16} />
           </button>
         </div>
 

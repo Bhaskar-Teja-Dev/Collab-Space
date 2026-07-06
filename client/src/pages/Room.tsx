@@ -1,16 +1,20 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, FileText, Layers, StickyNote, Code2 } from 'lucide-react';
+import { ArrowLeft, FileText, Layers, StickyNote, Code2, History, Globe, Lock } from 'lucide-react';
 import { api } from '../lib/api';
 import { usePresence } from '../hooks/usePresence';
 import { useRoomStore } from '../store/room';
 import { useAuthStore } from '../store/auth';
+import { useToast } from '../components/ui';
 import PresenceBar from '../components/presence/PresenceBar';
 import CursorOverlay from '../components/presence/CursorOverlay';
 import DocEditor from '../components/editor/DocEditor';
 import Whiteboard from '../components/whiteboard/Whiteboard';
 import NotesBoard from '../components/notes/NotesBoard';
 import CodeEditor from '../components/code/CodeEditor';
+import VersionHistoryPanel from '../components/versions/VersionHistoryPanel';
+import { getSocket } from '../lib/socket';
+import { SOCKET_EVENTS } from '@collab-space/shared';
 import styles from './Room.module.css';
 
 type Module = 'doc' | 'whiteboard' | 'notes' | 'code';
@@ -26,12 +30,15 @@ interface RoomData {
   id: string;
   name: string;
   slug: string;
+  ownerId: string;
+  isPublic: boolean;
   documents: Array<{ id: string; title: string; version: number }>;
 }
 
 export default function Room() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const user = useAuthStore((s) => s.user);
   const setRoom = useRoomStore((s) => s.setRoom);
@@ -43,13 +50,23 @@ export default function Room() {
   const [room, setRoomData] = useState<RoomData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isPublic, setIsPublic] = useState(false);
 
-  // Use presence hook — joins room via socket on mount, leaves on unmount
+  // Version panel state
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [currentDocContent, setCurrentDocContent] = useState('');
+  const [isFetchingDoc, setIsFetchingDoc] = useState(false);
+
+  // Modules cache refs (for snapshots)
+  const whiteboardRef = useRef<unknown[]>([]);
+  const notesRef = useRef<unknown[]>([]);
+  const codeContentRef = useRef('');
+  const codeLangRef = useRef('javascript');
+
   const { broadcastCursor } = usePresence(room?.id ?? null);
-
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Load room data from REST
+  // Load room data
   useEffect(() => {
     if (!slug) return;
 
@@ -57,6 +74,7 @@ export default function Room() {
       try {
         const { room: data } = await api.rooms.get(slug);
         setRoomData(data);
+        setIsPublic(data.isPublic);
         setRoom(data.id, data.slug, data.name);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load room');
@@ -70,7 +88,62 @@ export default function Room() {
     };
   }, [slug, setRoom, clearRoom]);
 
-  // Broadcast cursor position on mouse move over the room container
+  // Subscribe to real-time shapes, notes and code updates to cache current values
+  useEffect(() => {
+    if (!room?.id) return;
+    const socket = getSocket();
+
+    const handleWbState = (data: { shapes: any[] }) => { whiteboardRef.current = data.shapes; };
+    const handleShapeAdd = (data: { shape: any }) => { whiteboardRef.current = [...whiteboardRef.current, data.shape]; };
+    const handleShapeUpdate = (data: { shape: any }) => { whiteboardRef.current = whiteboardRef.current.map((s: any) => s.id === data.shape.id ? data.shape : s); };
+    const handleShapeDelete = (data: { shapeId: string }) => { whiteboardRef.current = whiteboardRef.current.filter((s: any) => s.id !== data.shapeId); };
+
+    const handleNotesState = (data: { notes: any[] }) => { notesRef.current = data.notes; };
+    const handleNoteCreate = (data: { note: any }) => { notesRef.current = [...notesRef.current, data.note]; };
+    const handleNoteUpdate = (data: { noteId: string; content: string }) => { notesRef.current = notesRef.current.map((n: any) => n.id === data.noteId ? { ...n, content: data.content } : n); };
+    const handleNoteDelete = (data: { noteId: string }) => { notesRef.current = notesRef.current.filter((n: any) => n.id !== data.noteId); };
+    const handleNoteMove = (data: { noteId: string; x: number; y: number }) => { notesRef.current = notesRef.current.map((n: any) => n.id === data.noteId ? { ...n, x: data.x, y: data.y } : n); };
+
+    const handleCodeState = (data: { content: string; language: string }) => {
+      codeContentRef.current = data.content;
+      codeLangRef.current = data.language;
+    };
+    const handleCodeUpdate = (data: { content: string; language: string }) => {
+      codeContentRef.current = data.content;
+      codeLangRef.current = data.language;
+    };
+
+    socket.on(SOCKET_EVENTS.WB_STATE, handleWbState);
+    socket.on(SOCKET_EVENTS.SHAPE_ADD, handleShapeAdd);
+    socket.on(SOCKET_EVENTS.SHAPE_UPDATE, handleShapeUpdate);
+    socket.on(SOCKET_EVENTS.SHAPE_DELETE, handleShapeDelete);
+
+    socket.on(SOCKET_EVENTS.NOTES_STATE, handleNotesState);
+    socket.on(SOCKET_EVENTS.NOTE_CREATE, handleNoteCreate);
+    socket.on(SOCKET_EVENTS.NOTE_UPDATE, handleNoteUpdate);
+    socket.on(SOCKET_EVENTS.NOTE_DELETE, handleNoteDelete);
+    socket.on(SOCKET_EVENTS.NOTE_MOVE, handleNoteMove);
+
+    socket.on(SOCKET_EVENTS.CODE_STATE, handleCodeState);
+    socket.on(SOCKET_EVENTS.CODE_UPDATE, handleCodeUpdate);
+
+    return () => {
+      socket.off(SOCKET_EVENTS.WB_STATE, handleWbState);
+      socket.off(SOCKET_EVENTS.SHAPE_ADD, handleShapeAdd);
+      socket.off(SOCKET_EVENTS.SHAPE_UPDATE, handleShapeUpdate);
+      socket.off(SOCKET_EVENTS.SHAPE_DELETE, handleShapeDelete);
+
+      socket.off(SOCKET_EVENTS.NOTES_STATE, handleNotesState);
+      socket.off(SOCKET_EVENTS.NOTE_CREATE, handleNoteCreate);
+      socket.off(SOCKET_EVENTS.NOTE_UPDATE, handleNoteUpdate);
+      socket.off(SOCKET_EVENTS.NOTE_DELETE, handleNoteDelete);
+      socket.off(SOCKET_EVENTS.NOTE_MOVE, handleNoteMove);
+
+      socket.off(SOCKET_EVENTS.CODE_STATE, handleCodeState);
+      socket.off(SOCKET_EVENTS.CODE_UPDATE, handleCodeUpdate);
+    };
+  }, [room?.id]);
+
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const rect = containerRef.current?.getBoundingClientRect();
@@ -84,7 +157,80 @@ export default function Room() {
     [broadcastCursor]
   );
 
-  // Render module content
+  const handleTogglePrivacy = async () => {
+    if (!room) return;
+    try {
+      const res = await api.rooms.togglePrivacy(room.slug);
+      setIsPublic(res.isPublic);
+      showToast(`Room is now ${res.isPublic ? 'Public' : 'Private'}`, 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to toggle room privacy', 'danger');
+    }
+  };
+
+  const handleOpenHistory = async () => {
+    const docId = room?.documents?.[0]?.id;
+    if (!docId) return;
+    setIsFetchingDoc(true);
+    try {
+      const res = await api.documents.get(docId);
+      setCurrentDocContent(res.document.content);
+      setHistoryOpen(true);
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to load current document content', 'danger');
+    } finally {
+      setIsFetchingDoc(false);
+    }
+  };
+
+  const handleRevertSuccess = (reverted: {
+    docContent: string;
+    whiteboard: string;
+    notes: string;
+    codeContent: string;
+    codeLang: string;
+  }) => {
+    const socket = getSocket();
+    if (!room?.id) return;
+
+    // 1. Delete all current whiteboard shapes, then add reverted
+    whiteboardRef.current.forEach((s: any) => {
+      socket.emit(SOCKET_EVENTS.SHAPE_DELETE, { roomId: room.id, shapeId: s.id });
+    });
+    try {
+      const revWb = JSON.parse(reverted.whiteboard) as any[];
+      revWb.forEach((s: any) => {
+        socket.emit(SOCKET_EVENTS.SHAPE_ADD, { roomId: room.id, shape: s });
+      });
+      whiteboardRef.current = revWb;
+    } catch (err) { console.error(err); }
+
+    // 2. Delete all current notes, then add reverted
+    notesRef.current.forEach((n: any) => {
+      socket.emit(SOCKET_EVENTS.NOTE_DELETE, { roomId: room.id, noteId: n.id });
+    });
+    try {
+      const revNotes = JSON.parse(reverted.notes) as any[];
+      revNotes.forEach((n: any) => {
+        socket.emit(SOCKET_EVENTS.NOTE_CREATE, { roomId: room.id, note: n });
+      });
+      notesRef.current = revNotes;
+    } catch (err) { console.error(err); }
+
+    // 3. Update code content
+    socket.emit(SOCKET_EVENTS.CODE_UPDATE, {
+      roomId: room.id,
+      content: reverted.codeContent,
+      language: reverted.codeLang,
+    });
+    codeContentRef.current = reverted.codeContent;
+    codeLangRef.current = reverted.codeLang;
+
+    showToast('Restored all modules successfully!', 'success');
+  };
+
   const renderModule = () => {
     const docId = room?.documents?.[0]?.id;
 
@@ -123,16 +269,16 @@ export default function Room() {
     );
   }
 
+  const isOwner = room?.ownerId === user?.id;
+
   return (
     <div className={styles.layout}>
       {/* ── Sidebar ── */}
       <aside className={styles.sidebar}>
-        {/* Logo */}
         <div className={styles.sidebarLogo}>
           <div className={styles.logoMark}>C</div>
         </div>
 
-        {/* Module nav */}
         <nav className={styles.moduleNav} aria-label="Modules">
           {(Object.keys(MODULE_LABELS) as Module[]).map((mod) => (
             <button
@@ -149,7 +295,6 @@ export default function Room() {
           ))}
         </nav>
 
-        {/* Back to dashboard */}
         <div className={styles.sidebarBottom}>
           <button
             className={`btn btn-ghost btn-sm ${styles.backBtn}`}
@@ -168,13 +313,49 @@ export default function Room() {
         <header className={styles.topBar}>
           <div className={styles.roomTitle}>
             <h1 className={styles.roomName}>{room?.name}</h1>
+            
+            {/* Privacy Badge */}
+            <span className={`${styles.privacyBadge} ${isPublic ? styles.privacyPublic : styles.privacyPrivate}`}>
+              {isPublic ? (
+                <>
+                  <Globe size={11} style={{ marginRight: 2 }} />
+                  Public
+                </>
+              ) : (
+                <>
+                  <Lock size={11} style={{ marginRight: 2 }} />
+                  Private
+                </>
+              )}
+            </span>
+
+            {isOwner && (
+              <button onClick={handleTogglePrivacy} className={styles.changeBtn}>
+                Change
+              </button>
+            )}
+
             <span className={styles.moduleLabel}>
               {MODULE_LABELS[activeModule].label}
             </span>
           </div>
 
-          {/* Presence bar */}
-          <PresenceBar users={presenceUsers} currentUserId={user?.id ?? ''} />
+          <div className={styles.topBarRight}>
+            <PresenceBar users={presenceUsers} currentUserId={user?.id ?? ''} />
+            
+            <button 
+              className={styles.historyBtn} 
+              onClick={handleOpenHistory}
+              disabled={isFetchingDoc}
+            >
+              {isFetchingDoc ? (
+                <span className="spinner" style={{ width: 12, height: 12 }} />
+              ) : (
+                <History size={13} />
+              )}
+              History
+            </button>
+          </div>
         </header>
 
         {/* Content area with cursor tracking */}
@@ -183,17 +364,27 @@ export default function Room() {
           className={styles.contentArea}
           onMouseMove={handleMouseMove}
         >
-          {/* Remote cursors overlay */}
           <CursorOverlay
             users={presenceUsers}
             currentUserId={user?.id ?? ''}
             containerRef={containerRef}
           />
 
-          {/* Module content */}
           {renderModule()}
         </div>
       </div>
+
+      <VersionHistoryPanel
+        isOpen={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        roomId={room?.id ?? ''}
+        docContent={currentDocContent}
+        whiteboard={whiteboardRef.current}
+        notes={notesRef.current}
+        codeContent={codeContentRef.current}
+        codeLang={codeLangRef.current}
+        onRevertSuccess={handleRevertSuccess}
+      />
     </div>
   );
 }

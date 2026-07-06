@@ -16,6 +16,8 @@ export interface AuthenticatedSocket extends Socket {
   user: AuthTokenPayload;
 }
 
+export let ioInstance: SocketServer | null = null;
+
 export function initSocketServer(httpServer: HttpServer): SocketServer {
   const allowedOrigins = [
     process.env.CLIENT_ORIGIN,
@@ -43,6 +45,8 @@ export function initSocketServer(httpServer: HttpServer): SocketServer {
       maxDisconnectionDuration: 30_000,
     },
   });
+
+  ioInstance = io;
 
   // ── Redis adapter for multi-instance scaling ────────────────────────────────
   // Enables Socket.IO to broadcast across multiple server instances.

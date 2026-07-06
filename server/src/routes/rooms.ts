@@ -157,3 +157,44 @@ roomsRouter.delete('/:slug', async (req, res) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+// ─── GET /api/rooms/explore/public — list all public rooms ───────────────────
+
+roomsRouter.get('/explore/public', async (req, res) => {
+  try {
+    const rooms = await prisma.room.findMany({
+      where: { isPublic: true },
+      include: {
+        owner: { select: { id: true, displayName: true, avatarColor: true } },
+        _count: { select: { members: true } },
+      },
+      orderBy: { updatedAt: 'desc' },
+      take: 50,
+    });
+    res.json({ rooms });
+  } catch (err) {
+    console.error('[rooms/public]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// ─── PUT /api/rooms/:slug/privacy — toggle isPublic (owner only) ─────────────
+
+roomsRouter.put('/:slug/privacy', async (req, res) => {
+  try {
+    const room = await prisma.room.findUnique({ where: { slug: req.params.slug } });
+    if (!room) { res.status(404).json({ error: 'Room not found' }); return; }
+    if (room.ownerId !== req.user!.userId) {
+      res.status(403).json({ error: 'Only the room owner can change privacy' });
+      return;
+    }
+    const updated = await prisma.room.update({
+      where: { id: room.id },
+      data: { isPublic: !room.isPublic },
+    });
+    res.json({ isPublic: updated.isPublic });
+  } catch (err) {
+    console.error('[rooms/privacy]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});

@@ -254,3 +254,33 @@ function dbOpToOperation(o: {
   }
   return { type: 'retain', count: o.count ?? 0 };
 }
+
+// ─── Force Reload (used by REST route on revert) ─────────────────────────────
+
+import { ioInstance } from './index';
+
+export function forceReloadDocumentState(roomId: string, documentId: string, content: string) {
+  if (!ioInstance) return;
+  const state = docStates.get(documentId);
+  const newVersion = state ? state.version + 1 : 1;
+  
+  docStates.set(documentId, {
+    content,
+    version: newVersion,
+    history: []
+  });
+
+  // Persist updated version to DB
+  prisma.document.update({
+    where: { id: documentId },
+    data: { version: newVersion }
+  }).catch(err => console.error('[forceReloadDocumentState/db_update]', err));
+
+  // Broadcast reverted doc snapshot to everyone in the room
+  ioInstance.to(roomId).emit(SOCKET_EVENTS.DOC_STATE, {
+    documentId,
+    content,
+    version: newVersion,
+  });
+}
+

@@ -10,6 +10,7 @@ import { initSocketServer } from './socket/index';
 import { authRouter } from './routes/auth';
 import { roomsRouter } from './routes/rooms';
 import { documentsRouter } from './routes/documents';
+import { versionsRouter } from './routes/versions';
 
 const app = express();
 const httpServer = createServer(app);
@@ -42,6 +43,7 @@ app.use(express.json());
 app.use('/api/auth', authRouter);
 app.use('/api/rooms', roomsRouter);
 app.use('/api/documents', documentsRouter);
+app.use('/api/rooms/:roomId/versions', versionsRouter);
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });

@@ -40,6 +40,12 @@ export const api = {
       }),
 
     me: () => request<{ user: any }>('/api/auth/me'),
+
+    updateProfile: (body: any) =>
+      request<{ user: any }>('/api/auth/profile', {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      }),
   },
 
   rooms: {
@@ -55,6 +61,32 @@ export const api = {
 
     delete: (slug: string) =>
       request<{ success: boolean }>(`/api/rooms/${slug}`, { method: 'DELETE' }),
+
+    explorePublic: () =>
+      request<{ rooms: any[] }>('/api/rooms/explore/public'),
+
+    togglePrivacy: (slug: string) =>
+      request<{ isPublic: boolean }>(`/api/rooms/${slug}/privacy`, { method: 'PUT' }),
+
+    listVersions: (roomId: string) =>
+      request<{ versions: any[] }>(`/api/rooms/${roomId}/versions`),
+
+    saveVersion: (roomId: string, body: any) =>
+      request<{ version: any }>(`/api/rooms/${roomId}/versions`, {
+        method: 'POST',
+        body: JSON.stringify(body),
+      }),
+
+    revertVersion: (roomId: string, versionId: string) =>
+      request<{ version: any }>(`/api/rooms/${roomId}/versions/${versionId}/revert`, {
+        method: 'POST',
+      }),
+
+    summarizeVersions: (roomId: string, versionAId: string, versionBId: string) =>
+      request<{ summary: string }>(`/api/rooms/${roomId}/versions/summarize`, {
+        method: 'POST',
+        body: JSON.stringify({ versionAId, versionBId }),
+      }),
   },
 
   documents: {
@@ -63,3 +95,4 @@ export const api = {
       request<{ operations: any[] }>(`/api/documents/${id}/history?since=${since}`),
   },
 };
+

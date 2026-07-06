@@ -6,6 +6,7 @@ interface AuthUser {
   email: string;
   displayName: string;
   avatarColor: string;
+  bio?: string;
 }
 
 interface AuthState {
@@ -15,6 +16,7 @@ interface AuthState {
   error: string | null;
 
   setAuth: (user: AuthUser, token: string) => void;
+  updateUser: (partial: Partial<AuthUser>) => void;
   clearAuth: () => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
@@ -29,6 +31,7 @@ export const useAuthStore = create<AuthState>()(
       error: null,
 
       setAuth: (user, token) => set({ user, token, error: null }),
+      updateUser: (partial) => set((s) => ({ user: s.user ? { ...s.user, ...partial } : null })),
       clearAuth: () => set({ user: null, token: null }),
       setLoading: (isLoading) => set({ isLoading }),
       setError: (error) => set({ error }),

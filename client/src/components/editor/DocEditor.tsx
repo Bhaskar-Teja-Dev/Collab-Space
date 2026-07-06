@@ -3,6 +3,7 @@ import { SOCKET_EVENTS, type Operation, type OperationAck } from '@collab-space/
 import { applyOp } from '@collab-space/shared';
 import { getSocket } from '../../lib/socket';
 import { OTClient, diffToOp } from '../../lib/ot-client';
+import { Undo, Redo } from 'lucide-react';
 import styles from './DocEditor.module.css';
 
 interface Props {
@@ -10,7 +11,6 @@ interface Props {
   documentId: string | null;
 }
 
-// Word count helper
 function countWords(text: string): number {
   return text.trim() ? text.trim().split(/\s+/).length : 0;
 }
@@ -20,19 +20,20 @@ export default function DocEditor({ roomId, documentId }: Props) {
   const [docTitle, setDocTitle] = useState('Untitled Document');
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // Refs to avoid stale closures in socket handlers
   const contentRef = useRef('');
   const otClientRef = useRef<OTClient>(new OTClient());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const syncTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Keep contentRef in sync
+  const undoStack = useRef<string[]>([]);
+  const redoStack = useRef<string[]>([]);
+  const isUndoRedoRef = useRef(false);
+
   const updateContent = useCallback((val: string) => {
     contentRef.current = val;
     setContent(val);
   }, []);
 
-  // Auto-resize textarea
   const autoResize = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta) return;
@@ -40,14 +41,12 @@ export default function DocEditor({ roomId, documentId }: Props) {
     ta.style.height = `${ta.scrollHeight}px`;
   }, []);
 
-  // Socket effects
   useEffect(() => {
     if (!documentId) return;
 
     const socket = getSocket();
     const otClient = otClientRef.current;
 
-    // Initial document snapshot
     const handleDocState = (data: {
       documentId: string;
       content: string;
@@ -56,22 +55,21 @@ export default function DocEditor({ roomId, documentId }: Props) {
       if (data.documentId !== documentId) return;
       otClient.version = data.version;
       updateContent(data.content);
-      // Extract title from first line (convention)
       const lines = data.content.split('\n');
       if (lines[0]?.startsWith('# ')) {
         setDocTitle(lines[0].slice(2).trim() || 'Untitled Document');
       }
       setTimeout(autoResize, 0);
+      undoStack.current = [];
+      redoStack.current = [];
     };
 
-    // Remote op — apply to local content
     const handleOpBroadcast = (data: {
       documentId: string;
       operation: Operation;
       version: number;
     }) => {
       if (data.documentId !== documentId) return;
-      // Transform against pending if any
       const opToApply = otClient.handleBroadcast(data.operation);
       const newContent = applyOp(contentRef.current, opToApply);
       otClient.version = data.version;
@@ -79,11 +77,9 @@ export default function DocEditor({ roomId, documentId }: Props) {
       setTimeout(autoResize, 0);
     };
 
-    // ACK from server
     const handleOpAck = (ack: OperationAck) => {
       if (ack.documentId !== documentId) return;
       otClient.handleAck(ack, roomId ?? '', documentId, socket);
-      // Clear syncing after a brief visual delay
       if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
       syncTimeoutRef.current = setTimeout(() => setIsSyncing(false), 400);
     };
@@ -100,13 +96,17 @@ export default function DocEditor({ roomId, documentId }: Props) {
     };
   }, [roomId, documentId, updateContent, autoResize]);
 
-  // Process local edits sequentially to handle replacements (delete then insert)
   const processNextPendingOp = useCallback(() => {
     const ta = textareaRef.current;
     if (!ta || !roomId || !documentId) return;
     const newVal = ta.value;
     const oldVal = contentRef.current;
     if (newVal === oldVal) return;
+
+    if (!isUndoRedoRef.current) {
+      undoStack.current.push(oldVal);
+      redoStack.current = [];
+    }
 
     const op = diffToOp(oldVal, newVal);
     if (op) {
@@ -117,14 +117,57 @@ export default function DocEditor({ roomId, documentId }: Props) {
       setIsSyncing(true);
       otClientRef.current.submit(op, roomId, documentId, socket);
 
-      // If additional diff remains (e.g. an insert following a delete), schedule next check
       if (ta.value !== nextLocalState) {
         setTimeout(processNextPendingOp, 50);
       }
     }
   }, [roomId, documentId, updateContent]);
 
-  // Handle textarea changes — trigger the diff processor loop
+  const handleUndo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop()!;
+    redoStack.current.push(contentRef.current);
+
+    const ta = textareaRef.current;
+    if (!ta) return;
+    isUndoRedoRef.current = true;
+    ta.value = prev;
+    processNextPendingOp();
+    isUndoRedoRef.current = false;
+    setTimeout(autoResize, 0);
+  }, [processNextPendingOp, autoResize]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(contentRef.current);
+
+    const ta = textareaRef.current;
+    if (!ta) return;
+    isUndoRedoRef.current = true;
+    ta.value = next;
+    processNextPendingOp();
+    isUndoRedoRef.current = false;
+    setTimeout(autoResize, 0);
+  }, [processNextPendingOp, autoResize]);
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        handleRedo();
+      } else {
+        handleUndo();
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      handleRedo();
+      return;
+    }
+  };
+
   const handleChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       autoResize();
@@ -133,7 +176,6 @@ export default function DocEditor({ roomId, documentId }: Props) {
     [autoResize, processNextPendingOp]
   );
 
-  // Toolbar: insert markdown syntax at cursor position
   const insertAtCursor = useCallback(
     (before: string, after: string = '') => {
       const ta = textareaRef.current;
@@ -145,11 +187,9 @@ export default function DocEditor({ roomId, documentId }: Props) {
       const newContent =
         content.slice(0, start) + before + selected + after + content.slice(end);
 
-      // Set value on raw element to trigger diff calculation
       ta.value = newContent;
       autoResize();
 
-      // Restore cursor position
       requestAnimationFrame(() => {
         ta.selectionStart = start + before.length;
         ta.selectionEnd = end + before.length;
@@ -183,7 +223,6 @@ export default function DocEditor({ roomId, documentId }: Props) {
     [content, autoResize, processNextPendingOp]
   );
 
-  const version = otClientRef.current.version;
   const words = countWords(content);
 
   if (!documentId) {
@@ -210,7 +249,6 @@ export default function DocEditor({ roomId, documentId }: Props) {
             aria-label="Document title"
             id="doc-title-input"
           />
-          <span className={styles.versionBadge}>v{version}</span>
         </div>
         <div className={styles.statusRight}>
           <span className={styles.wordCount}>{words} word{words !== 1 ? 's' : ''}</span>
@@ -235,6 +273,30 @@ export default function DocEditor({ roomId, documentId }: Props) {
 
       {/* ── Toolbar ── */}
       <div className={styles.toolbar} role="toolbar" aria-label="Formatting">
+        <button
+          className={styles.toolbarBtn}
+          onClick={handleUndo}
+          disabled={undoStack.current.length === 0}
+          title="Undo (Ctrl+Z)"
+          type="button"
+          aria-label="Undo"
+          style={{ opacity: undoStack.current.length === 0 ? 0.4 : 1 }}
+        >
+          <Undo size={14} />
+        </button>
+        <button
+          className={styles.toolbarBtn}
+          onClick={handleRedo}
+          disabled={redoStack.current.length === 0}
+          title="Redo (Ctrl+Shift+Z)"
+          type="button"
+          aria-label="Redo"
+          style={{ opacity: redoStack.current.length === 0 ? 0.4 : 1 }}
+        >
+          <Redo size={14} />
+        </button>
+        <div className={styles.toolbarDivider} />
+
         <button
           className={`${styles.toolbarBtn}`}
           onClick={() => insertAtCursor('**', '**')}
@@ -343,6 +405,7 @@ export default function DocEditor({ roomId, documentId }: Props) {
             className={styles.textarea}
             value={content}
             onChange={handleChange}
+            onKeyDown={handleKeyDown}
             placeholder="Start writing… Markdown is supported."
             aria-label="Document body"
             id="doc-editor-textarea"

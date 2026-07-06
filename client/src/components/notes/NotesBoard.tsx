@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { SOCKET_EVENTS } from '@collab-space/shared';
 import { getSocket } from '../../lib/socket';
 import { useAuthStore } from '../../store/auth';
 import { useToast } from '../ui';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Undo2, Redo2 } from 'lucide-react';
 import styles from './NotesBoard.module.css';
 
 type NoteColor = 'yellow' | 'blue' | 'green' | 'pink' | 'purple';
@@ -39,9 +39,13 @@ export default function NotesBoard({ roomId }: Props) {
   const [notes, setNotes] = useState<Note[]>([]);
   const boardRef = useRef<HTMLDivElement>(null);
   
-  // Drag states
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+  const undoStack = useRef<Note[][]>([]);
+  const redoStack = useRef<Note[][]>([]);
+  const notesBeforeDragRef = useRef<Note[] | null>(null);
+  const noteBeforeEditRef = useRef<Note[] | null>(null);
 
   // Sync notes from socket
   useEffect(() => {
@@ -109,6 +113,8 @@ export default function NotesBoard({ roomId }: Props) {
       createdAt: new Date().toISOString(),
     };
 
+    undoStack.current.push(notes);
+    redoStack.current = [];
     setNotes((prev) => [...prev, newNote]);
     socket.emit(SOCKET_EVENTS.NOTE_CREATE, { roomId, note: newNote });
   };
@@ -123,18 +129,35 @@ export default function NotesBoard({ roomId }: Props) {
     socket.emit(SOCKET_EVENTS.NOTE_UPDATE, { roomId, noteId, content: val });
   };
 
+  const handleNoteFocus = () => {
+    noteBeforeEditRef.current = notes;
+  };
+
+  const handleNoteBlur = (noteId: string, currentVal: string) => {
+    if (noteBeforeEditRef.current) {
+      const originalNote = noteBeforeEditRef.current.find((n) => n.id === noteId);
+      if (originalNote && originalNote.content !== currentVal) {
+        undoStack.current.push(noteBeforeEditRef.current);
+        redoStack.current = [];
+      }
+      noteBeforeEditRef.current = null;
+    }
+  };
+
   const deleteNote = (noteId: string) => {
     if (!roomId) return;
     const socket = getSocket();
 
+    undoStack.current.push(notes);
+    redoStack.current = [];
     setNotes((prev) => prev.filter((n) => n.id !== noteId));
     socket.emit(SOCKET_EVENTS.NOTE_DELETE, { roomId, noteId });
     showToast('Note deleted', 'info');
   };
 
-  // Drag handlers
   const handleDragStart = (e: React.MouseEvent, note: Note) => {
     e.preventDefault();
+    notesBeforeDragRef.current = notes;
     setActiveDragId(note.id);
     setDragOffset({
       x: e.clientX - note.x,
@@ -149,11 +172,9 @@ export default function NotesBoard({ roomId }: Props) {
     const board = boardRef.current;
     if (!board) return;
 
-    const rect = board.getBoundingClientRect();
     let newX = e.clientX - dragOffset.x;
     let newY = e.clientY - dragOffset.y;
 
-    // Bounds checking
     newX = Math.max(10, Math.min(newX, board.clientWidth - 230));
     newY = Math.max(10, Math.min(newY, board.clientHeight - 230));
 
@@ -164,8 +185,87 @@ export default function NotesBoard({ roomId }: Props) {
   };
 
   const handleDragEnd = () => {
+    if (activeDragId && notesBeforeDragRef.current) {
+      const original = notesBeforeDragRef.current.find((n) => n.id === activeDragId);
+      const current = notes.find((n) => n.id === activeDragId);
+      if (original && current && (original.x !== current.x || original.y !== current.y)) {
+        undoStack.current.push(notesBeforeDragRef.current);
+        redoStack.current = [];
+      }
+    }
     setActiveDragId(null);
+    notesBeforeDragRef.current = null;
   };
+
+  const syncNotesDiff = useCallback((fromNotes: Note[], toNotes: Note[]) => {
+    if (!roomId) return;
+    const socket = getSocket();
+
+    const fromMap = new Map(fromNotes.map((n) => [n.id, n]));
+    const toMap = new Map(toNotes.map((n) => [n.id, n]));
+
+    toNotes.forEach((n) => {
+      if (!fromMap.has(n.id)) {
+        socket.emit(SOCKET_EVENTS.NOTE_CREATE, { roomId, note: n });
+      }
+    });
+
+    fromNotes.forEach((n) => {
+      if (!toMap.has(n.id)) {
+        socket.emit(SOCKET_EVENTS.NOTE_DELETE, { roomId, noteId: n.id });
+      }
+    });
+
+    toNotes.forEach((n) => {
+      const original = fromMap.get(n.id);
+      if (original) {
+        if (original.content !== n.content) {
+          socket.emit(SOCKET_EVENTS.NOTE_UPDATE, { roomId, noteId: n.id, content: n.content });
+        }
+        if (original.x !== n.x || original.y !== n.y) {
+          socket.emit(SOCKET_EVENTS.NOTE_MOVE, { roomId, noteId: n.id, x: n.x, y: n.y });
+        }
+      }
+    });
+  }, [roomId]);
+
+  const handleUndo = useCallback(() => {
+    if (undoStack.current.length === 0) return;
+    const prev = undoStack.current.pop()!;
+    redoStack.current.push(notes);
+    syncNotesDiff(notes, prev);
+    setNotes(prev);
+  }, [notes, syncNotesDiff]);
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.current.length === 0) return;
+    const next = redoStack.current.pop()!;
+    undoStack.current.push(notes);
+    syncNotesDiff(notes, next);
+    setNotes(next);
+  }, [notes, syncNotesDiff]);
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement?.tagName;
+      if (active === 'INPUT' || active === 'TEXTAREA') return;
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          handleRedo();
+        } else {
+          handleUndo();
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [handleUndo, handleRedo]);
 
   return (
     <div
@@ -175,8 +275,30 @@ export default function NotesBoard({ roomId }: Props) {
       onMouseUp={handleDragEnd}
       onMouseLeave={handleDragEnd}
     >
-      {/* ── Background Grid Pattern ── */}
       <div className={styles.gridOverlay} />
+
+      {/* ── Header Toolbar ── */}
+      <div className={styles.boardHeader}>
+        <span className={styles.boardTitle}>Sticky Board</span>
+        <div className={styles.boardActions}>
+          <button 
+            className={styles.actionBtn} 
+            onClick={handleUndo} 
+            disabled={undoStack.current.length === 0}
+            title="Undo (Ctrl+Z)"
+          >
+            <Undo2 size={15} />
+          </button>
+          <button 
+            className={styles.actionBtn} 
+            onClick={handleRedo} 
+            disabled={redoStack.current.length === 0}
+            title="Redo (Ctrl+Shift+Z)"
+          >
+            <Redo2 size={15} />
+          </button>
+        </div>
+      </div>
 
       {/* ── Sticky Notes list ── */}
       {notes.map((note) => {
@@ -194,7 +316,6 @@ export default function NotesBoard({ roomId }: Props) {
               color: theme.text,
             }}
           >
-            {/* Header / Drag Handle */}
             <div
               className={styles.noteHeader}
               onMouseDown={(e) => handleDragStart(e, note)}
@@ -211,10 +332,11 @@ export default function NotesBoard({ roomId }: Props) {
               </button>
             </div>
 
-            {/* Note Textarea */}
             <textarea
               className={styles.noteBody}
               value={note.content}
+              onFocus={handleNoteFocus}
+              onBlur={(e) => handleNoteBlur(note.id, e.target.value)}
               onChange={(e) => updateNoteContent(note.id, e.target.value)}
               placeholder="Write a note…"
               style={{ color: theme.text }}
