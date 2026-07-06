@@ -1,9 +1,9 @@
-// ─── Gemini 1.5 Flash AI Service ─────────────────────────────────────────────
+// ─── Gemini 2.0 Flash AI Service ─────────────────────────────────────────────
 // Uses the free-tier Gemini API to generate text completions.
-// Model: gemini-1.5-flash  (generous free quota, fast, low latency)
+// Model: gemini-2.0-flash  (generous free quota, fast, low latency)
 // Docs: https://ai.google.dev/api/generate-content
 
-const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+const GEMINI_API = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 
 export async function generateWithGemini(prompt: string): Promise<string> {
   const apiKey = process.env.GEMINI_API_KEY;
