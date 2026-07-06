@@ -2,7 +2,7 @@
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ],
-  "buildCommand": "npm run build --workspace=client",
+  "buildCommand": "npm run build:client",
   "outputDirectory": "client/dist",
   "installCommand": "npm install",
   "framework": null
