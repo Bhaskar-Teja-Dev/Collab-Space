@@ -1,0 +1,169 @@
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6);
+  position: relative;
+  overflow: hidden;
+  background: var(--gradient-bg), var(--color-bg);
+}
+
+.orb {
+  position: fixed;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(99,102,241,0.15) 0%, transparent 70%);
+  border-radius: 50%;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  filter: blur(60px);
+}
+
+.backLink {
+  position: absolute;
+  top: var(--space-6);
+  left: var(--space-6);
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 700;
+}
+
+.logoMark {
+  width: 28px;
+  height: 28px;
+  background: var(--gradient-accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: var(--text-xs);
+  color: white;
+}
+
+.card {
+  width: 100%;
+  max-width: 440px;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ─── Tabs ───────────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--color-border-2);
+}
+
+.tab {
+  flex: 1;
+  padding: var(--space-4);
+  background: transparent;
+  border: none;
+  color: var(--color-text-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+  font-family: var(--font-sans);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.tab:hover { color: var(--color-text-2); }
+
+.tabActive {
+  color: var(--color-accent);
+  border-bottom-color: var(--color-accent);
+}
+
+/* ─── Card body ──────────────────────────────────────────────────────────── */
+
+.cardBody {
+  padding: var(--space-8);
+}
+
+.heading {
+  font-size: var(--text-2xl);
+  font-weight: 800;
+  margin-bottom: var(--space-1);
+}
+
+.sub {
+  font-size: var(--text-sm);
+  color: var(--color-text-2);
+  margin-bottom: var(--space-6);
+}
+
+/* ─── Form ───────────────────────────────────────────────────────────────── */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.inputWrapper {
+  position: relative;
+}
+
+.inputIcon {
+  position: absolute;
+  left: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--color-text-3);
+  pointer-events: none;
+}
+
+.inputWithIcon {
+  padding-left: calc(var(--space-3) + 16px + var(--space-2));
+}
+
+.inputPaddingRight {
+  padding-right: var(--space-10);
+}
+
+.eyeBtn {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: none;
+  color: var(--color-text-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 2px;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.eyeBtn:hover { color: var(--color-text-2); }
+
+.errorBox {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+  line-height: 1.5;
+}

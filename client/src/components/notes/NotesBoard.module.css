@@ -1,0 +1,183 @@
+.board {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #080c14;
+  overflow: hidden;
+  user-select: none;
+}
+
+.gridOverlay {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1.5px, transparent 1.5px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+.emptyState {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--color-text-3);
+  pointer-events: none;
+}
+
+.emptyState h3 {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-1);
+  color: var(--color-text-2);
+}
+
+.emptyState p {
+  font-size: var(--text-sm);
+}
+
+/* ─── Sticky Note ────────────────────────────────────────────────────────── */
+
+.note {
+  position: absolute;
+  min-height: 140px;
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+  z-index: 10;
+}
+
+.note:hover {
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+  z-index: 20;
+}
+
+.dragging {
+  box-shadow: 0 15px 30px rgba(0, 0, 0, 0.5) !important;
+  opacity: 0.9;
+  transform: scale(1.02);
+  z-index: 100 !important;
+}
+
+.noteHeader {
+  height: 28px;
+  padding: 0 var(--space-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.noteHeader:active {
+  cursor: grabbing;
+}
+
+.author {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+  opacity: 0.8;
+}
+
+.deleteBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  transition: background var(--duration-fast);
+}
+
+.deleteBtn:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.noteBody {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  padding: var(--space-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.5;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Floating Action Button (FAB) ────────────────────────────────────────── */
+
+.fabContainer {
+  position: absolute;
+  bottom: var(--space-6);
+  right: var(--space-6);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  z-index: 500;
+}
+
+.fab {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-full);
+  background: var(--gradient-accent);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 15px rgba(99, 102, 241, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+.fab:hover {
+  transform: scale(1.1);
+}
+
+.fabContainer:hover .fabOptions {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.fabOptions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  opacity: 0;
+  transform: translateY(10px);
+  pointer-events: none;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.colorSelectBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  transition: transform var(--duration-fast);
+}
+
+.colorSelectBtn:hover {
+  transform: scale(1.2);
+}

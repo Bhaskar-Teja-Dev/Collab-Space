@@ -1,0 +1,97 @@
+// This is your Prisma schema file.
+// Learn more about it in the docs: https://pris.ly/d/prisma-schema
+// After editing, run: npm run db:generate && npm run db:push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  avatarColor  String   @default("#6366f1") // indigo default
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownedRooms   Room[]         @relation("RoomOwner")
+  memberships  RoomMember[]
+  operations   Operation[]
+
+  @@map("users")
+}
+
+model Room {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique // URL-safe, e.g. "my-room-ab12cd"
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User   @relation("RoomOwner", fields: [ownerId], references: [id])
+  ownerId  String
+
+  members   RoomMember[]
+  documents Document[]
+
+  @@map("rooms")
+}
+
+model RoomMember {
+  id       String   @id @default(cuid())
+  joinedAt DateTime @default(now())
+
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId String
+
+  @@unique([roomId, userId])
+  @@map("room_members")
+}
+
+// Each room has exactly one Document for the main editor (v1).
+// Future phases could make this 1-to-many for the Notes module.
+model Document {
+  id        String   @id @default(cuid())
+  title     String   @default("Untitled Document")
+  content   String   @default("") // plain text for OT; or JSON string for Tiptap
+  version   Int      @default(0)  // incremented on every applied operation
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  roomId String @unique // one-to-one with room for v1
+
+  operations Operation[]
+
+  @@map("documents")
+}
+
+// Operation history — needed for OT: transform incoming ops against history
+// since the client's baseVersion.
+// Note: in production you'd archive old ops. For v1, keep all of them.
+model Operation {
+  id         String   @id @default(cuid())
+  appliedAt  DateTime @default(now())
+  version    Int      // the document version AFTER this op was applied
+  opType     String   // "insert" | "delete"
+  position   Int
+  chars      String?  // for insert ops
+  count      Int?     // for delete ops
+
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  documentId String
+  author     User     @relation(fields: [authorId], references: [id])
+  authorId   String
+
+  @@index([documentId, version])
+  @@map("operations")
+}

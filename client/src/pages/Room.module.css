@@ -1,0 +1,182 @@
+.layout {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ─── Sidebar ────────────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-3) 0;
+  background: var(--color-bg-2);
+  border-right: 1px solid var(--color-border-2);
+  flex-shrink: 0;
+  gap: var(--space-2);
+}
+
+.sidebarLogo {
+  margin-bottom: var(--space-4);
+}
+
+.logoMark {
+  width: 32px;
+  height: 32px;
+  background: var(--gradient-accent);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  font-size: 14px;
+  color: white;
+  box-shadow: 0 0 12px rgba(99,102,241,0.4);
+}
+
+.moduleNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  flex: 1;
+  width: 100%;
+  padding: 0 var(--space-2);
+}
+
+.moduleBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: var(--space-2) var(--space-1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  color: var(--color-text-3);
+  font-family: var(--font-sans);
+  font-size: 9px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.moduleBtn:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-text-2);
+  border-color: var(--color-border);
+}
+
+.moduleBtnActive {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: rgba(99,102,241,0.3);
+}
+
+.moduleBtnLabel {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebarBottom {
+  padding: 0 var(--space-2);
+  width: 100%;
+}
+
+.backBtn {
+  width: 100%;
+  justify-content: center;
+}
+
+/* ─── Main ───────────────────────────────────────────────────────────────── */
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ─── Top Bar ────────────────────────────────────────────────────────────── */
+
+.topBar {
+  height: 56px;
+  padding: 0 var(--space-5);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  background: rgba(13, 19, 32, 0.8);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--color-border-2);
+  flex-shrink: 0;
+}
+
+.roomTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.roomName {
+  font-size: var(--text-base);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.moduleLabel {
+  font-size: var(--text-xs);
+  color: var(--color-text-3);
+  padding: 2px var(--space-2);
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-full);
+  white-space: nowrap;
+}
+
+/* ─── Content Area ───────────────────────────────────────────────────────── */
+
+.contentArea {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+/* ─── States ─────────────────────────────────────────────────────────────── */
+
+.centered {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  text-align: center;
+  padding: var(--space-6);
+}
+
+.comingSoon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--space-3);
+  text-align: center;
+  color: var(--color-text-2);
+}
+
+.comingSoonIcon {
+  font-size: 48px;
+  margin-bottom: var(--space-2);
+}
+
+.comingSoon h2 {
+  font-size: var(--text-2xl);
+  color: var(--color-text);
+}

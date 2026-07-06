@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: collab-space-server
+    env: node
+    region: singapore  # closest to India
+    plan: free
+    buildCommand: |
+      npm install
+      npm run db:generate --workspace=server
+      npm run build --workspace=server
+    startCommand: node server/dist/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false   # set in Render dashboard
+      - key: JWT_SECRET
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: CLIENT_ORIGIN
+        sync: false   # e.g. https://collab-space.vercel.app
+      - key: MIGRATE_DATABASE_URL
+        sync: false
+    healthCheckPath: /api/health
