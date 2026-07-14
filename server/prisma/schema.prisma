@@ -15,7 +15,9 @@ datasource db {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
-  passwordHash String
+  passwordHash String?                       // nullable — OAuth users have no password
+  googleId     String?  @unique              // Google sub claim from id_token
+  avatarUrl    String?                       // Google profile picture URL
   displayName  String
   avatarColor  String   @default("#6366f1") // indigo default
   bio          String   @default("")

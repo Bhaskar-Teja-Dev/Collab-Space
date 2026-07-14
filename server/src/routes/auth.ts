@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
+import { OAuth2Client } from 'google-auth-library';
 import { prisma } from '../lib/db';
 import { signToken } from '../middleware/auth';
 
 export const authRouter = Router();
+
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
 
@@ -104,6 +107,12 @@ authRouter.post('/login', async (req, res) => {
       return;
     }
 
+    // OAuth-only accounts have no password hash
+    if (!user.passwordHash) {
+      res.status(400).json({ error: 'This account uses Google Sign-In. Please sign in with Google.' });
+      return;
+    }
+
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
       res.status(401).json({ error: 'Invalid email or password' });
@@ -132,6 +141,81 @@ authRouter.post('/login', async (req, res) => {
   }
 });
 
+// ─── POST /api/auth/google ────────────────────────────────────────────────────
+// Receives the Google `credential` (id_token) from the browser's GSI callback,
+// verifies it server-side, then upserts the user and returns a CollabSpace JWT.
+
+authRouter.post('/google', async (req, res) => {
+  const { credential } = req.body as { credential?: string };
+  if (!credential) {
+    res.status(400).json({ error: 'Missing Google credential' });
+    return;
+  }
+
+  try {
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      res.status(400).json({ error: 'Invalid Google token' });
+      return;
+    }
+
+    const { sub: googleId, email, name, picture } = payload;
+    const displayName = name ?? email.split('@')[0];
+
+    // Try to find existing user by googleId first, then fall back to email
+    let user = await prisma.user.findFirst({
+      where: { OR: [{ googleId }, { email }] },
+    });
+
+    if (user) {
+      // Link the Google account if not already linked
+      if (!user.googleId) {
+        user = await prisma.user.update({
+          where: { id: user.id },
+          data: { googleId, avatarUrl: picture ?? user.avatarUrl },
+        });
+      }
+    } else {
+      // New user — create with no password (OAuth only)
+      user = await prisma.user.create({
+        data: {
+          email,
+          googleId,
+          avatarUrl: picture,
+          displayName,
+          avatarColor: randomAvatarColor(),
+        },
+      });
+    }
+
+    const token = signToken({
+      userId: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      avatarColor: user.avatarColor,
+    });
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        displayName: user.displayName,
+        avatarColor: user.avatarColor,
+        avatarUrl: user.avatarUrl,
+      },
+    });
+  } catch (err) {
+    console.error('[auth/google]', err);
+    res.status(500).json({ error: 'Google authentication failed' });
+  }
+});
+
 // ─── GET /api/auth/me ─────────────────────────────────────────────────────────
 
 import { requireAuth } from '../middleware/auth';
@@ -140,7 +224,15 @@ authRouter.get('/me', requireAuth, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user!.userId },
-      select: { id: true, email: true, displayName: true, avatarColor: true, bio: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        avatarColor: true,
+        avatarUrl: true,
+        bio: true,
+        createdAt: true,
+      },
     });
 
     if (!user) {
@@ -189,6 +281,11 @@ authRouter.put('/profile', requireAuth, async (req, res) => {
         res.status(400).json({ error: 'Current password is required to change password' });
         return;
       }
+      // OAuth-only users have no password to verify against
+      if (!user.passwordHash) {
+        res.status(400).json({ error: 'This account uses Google Sign-In and has no password to change.' });
+        return;
+      }
       const valid = await bcrypt.compare(currentPassword, user.passwordHash);
       if (!valid) {
         res.status(401).json({ error: 'Current password is incorrect' });
@@ -200,7 +297,7 @@ authRouter.put('/profile', requireAuth, async (req, res) => {
     const updated = await prisma.user.update({
       where: { id: req.user!.userId },
       data: updateData,
-      select: { id: true, email: true, displayName: true, avatarColor: true, bio: true },
+      select: { id: true, email: true, displayName: true, avatarColor: true, avatarUrl: true, bio: true },
     });
 
     res.json({ user: updated });

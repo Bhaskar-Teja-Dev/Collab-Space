@@ -1,9 +1,24 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, Eye, EyeOff, Zap } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 import styles from './Auth.module.css';
+
+// Extend window to expose the Google GSI API
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: object) => void;
+          renderButton: (element: HTMLElement, config: object) => void;
+          prompt: () => void;
+        };
+      };
+    };
+  }
+}
 
 type Tab = 'login' | 'register';
 
@@ -18,7 +33,57 @@ export default function Auth() {
 
   const setAuth = useAuthStore((s) => s.setAuth);
   const navigate = useNavigate();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
+  // ── Google Sign-In initialization ────────────────────────────────────────
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) return;
+
+    const init = () => {
+      if (!window.google || !googleBtnRef.current) return;
+      window.google.accounts.id.initialize({
+        client_id: clientId,
+        callback: handleGoogleCredential,
+        auto_select: false,
+        cancel_on_tap_outside: true,
+      });
+      window.google.accounts.id.renderButton(googleBtnRef.current, {
+        theme: 'filled_black',
+        size: 'large',
+        shape: 'pill',
+        width: googleBtnRef.current.offsetWidth || 356,
+        text: tab === 'login' ? 'signin_with' : 'signup_with',
+        logo_alignment: 'left',
+      });
+    };
+
+    // GSI may not have loaded yet — poll briefly
+    if (window.google) {
+      init();
+    } else {
+      const interval = setInterval(() => {
+        if (window.google) { clearInterval(interval); init(); }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, [tab]); // re-render button when tab changes so text updates
+
+  const handleGoogleCredential = async (response: { credential: string }) => {
+    setError('');
+    setIsLoading(true);
+    try {
+      const result = await api.auth.googleLogin(response.credential);
+      setAuth(result.user, result.token);
+      navigate('/dashboard', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Google sign-in failed');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ── Email/password form submit ────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -84,6 +149,16 @@ export default function Auth() {
               ? 'Sign in to your CollabSpace account.'
               : 'Create an account and start collaborating.'}
           </p>
+
+          {/* Google Sign-In button */}
+          <div className={styles.googleBtnWrapper} ref={googleBtnRef} id="google-signin-btn" />
+
+          {/* Divider */}
+          <div className={styles.divider}>
+            <span className={styles.dividerLine} />
+            <span className={styles.dividerText}>or continue with email</span>
+            <span className={styles.dividerLine} />
+          </div>
 
           <form className={styles.form} onSubmit={handleSubmit} noValidate>
             {tab === 'register' && (
