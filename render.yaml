@@ -7,7 +7,7 @@ services:
     buildCommand: |
       npm install
       npm run build --workspace=shared
-      npm run db:generate --workspace=server
+      npx prisma generate --schema=server/prisma/schema.prisma
       npm run build --workspace=server
     startCommand: node server/dist/index.js
     envVars:
