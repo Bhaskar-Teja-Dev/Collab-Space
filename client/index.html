@@ -15,8 +15,8 @@
   </head>
   <body>
     <div id="root"></div>
-    <!-- Google Sign-In script must load before the app -->
-    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <!-- Google Sign-In: defer keeps it non-blocking; onGoogleLibraryLoad fires when ready -->
+    <script src="https://accounts.google.com/gsi/client" defer></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

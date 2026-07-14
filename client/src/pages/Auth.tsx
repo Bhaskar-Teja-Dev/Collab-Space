@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Mail, Lock, User, Eye, EyeOff, Zap } from 'lucide-react';
 import { api } from '../lib/api';
 import { useAuthStore } from '../store/auth';
 import styles from './Auth.module.css';
 
-// Extend window to expose the Google GSI API
+// Extend window to expose the Google GSI API + the onGoogleLibraryLoad callback
 declare global {
   interface Window {
     google?: {
@@ -17,10 +17,14 @@ declare global {
         };
       };
     };
+    onGoogleLibraryLoad?: () => void;
   }
 }
 
 type Tab = 'login' | 'register';
+
+// Module-level flag — prevents double-init in React StrictMode
+let gsiInitialized = false;
 
 export default function Auth() {
   const [tab, setTab] = useState<Tab>('login');
@@ -35,53 +39,73 @@ export default function Auth() {
   const navigate = useNavigate();
   const googleBtnRef = useRef<HTMLDivElement>(null);
 
-  // ── Google Sign-In initialization ────────────────────────────────────────
-  useEffect(() => {
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-    if (!clientId) return;
+  // ── Google credential handler — defined first so renderGSI can close over it ──
+  const handleGoogleCredential = useCallback(
+    async (response: { credential: string }) => {
+      setError('');
+      setIsLoading(true);
+      try {
+        const result = await api.auth.googleLogin(response.credential);
+        setAuth(result.user, result.token);
+        navigate('/dashboard', { replace: true });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Google sign-in failed');
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [setAuth, navigate]
+  );
 
-    const init = () => {
-      if (!window.google || !googleBtnRef.current) return;
+  // ── Initialize / re-render the GSI button ────────────────────────────────────
+  const renderGSI = useCallback(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+    if (!clientId || !window.google || !googleBtnRef.current) return;
+
+    // Clear any previously rendered button
+    googleBtnRef.current.innerHTML = '';
+
+    // initialize() must only be called once per page load
+    if (!gsiInitialized) {
       window.google.accounts.id.initialize({
         client_id: clientId,
         callback: handleGoogleCredential,
         auto_select: false,
         cancel_on_tap_outside: true,
       });
-      window.google.accounts.id.renderButton(googleBtnRef.current, {
-        theme: 'filled_black',
-        size: 'large',
-        shape: 'pill',
-        width: googleBtnRef.current.offsetWidth || 356,
-        text: tab === 'login' ? 'signin_with' : 'signup_with',
-        logo_alignment: 'left',
-      });
-    };
+      gsiInitialized = true;
+    }
 
-    // GSI may not have loaded yet — poll briefly
+    window.google.accounts.id.renderButton(googleBtnRef.current, {
+      theme: 'filled_black',
+      size: 'large',
+      shape: 'pill',
+      width: 356,
+      text: tab === 'login' ? 'signin_with' : 'signup_with',
+      logo_alignment: 'left',
+    });
+  }, [tab, handleGoogleCredential]);
+
+  useEffect(() => {
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+    if (!clientId) return;
+
     if (window.google) {
-      init();
+      // GSI script already loaded (e.g. fast connection or HMR)
+      renderGSI();
     } else {
-      const interval = setInterval(() => {
-        if (window.google) { clearInterval(interval); init(); }
-      }, 100);
-      return () => clearInterval(interval);
+      // Register Google's official "library ready" callback.
+      // GSI calls window.onGoogleLibraryLoad automatically once it finishes loading.
+      window.onGoogleLibraryLoad = renderGSI;
     }
-  }, [tab]); // re-render button when tab changes so text updates
 
-  const handleGoogleCredential = async (response: { credential: string }) => {
-    setError('');
-    setIsLoading(true);
-    try {
-      const result = await api.auth.googleLogin(response.credential);
-      setAuth(result.user, result.token);
-      navigate('/dashboard', { replace: true });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google sign-in failed');
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    return () => {
+      // Cleanup so we don't leak the global on unmount
+      if (window.onGoogleLibraryLoad === renderGSI) {
+        delete window.onGoogleLibraryLoad;
+      }
+    };
+  }, [renderGSI]);
 
   // ── Email/password form submit ────────────────────────────────────────────
   const handleSubmit = async (e: React.FormEvent) => {
@@ -150,8 +174,10 @@ export default function Auth() {
               : 'Create an account and start collaborating.'}
           </p>
 
-          {/* Google Sign-In button */}
-          <div className={styles.googleBtnWrapper} ref={googleBtnRef} id="google-signin-btn" />
+          {/* Google Sign-In button — GSI renders an iframe inside this div */}
+          <div className={styles.googleBtnWrapper}>
+            <div ref={googleBtnRef} id="google-signin-btn" style={{ width: '100%' }} />
+          </div>
 
           {/* Divider */}
           <div className={styles.divider}>

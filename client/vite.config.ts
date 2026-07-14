@@ -4,6 +4,8 @@ import { resolve } from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  // Load .env from the monorepo root (one level up from /client)
+  envDir: resolve(__dirname, '..'),
   resolve: {
     alias: {
       '@': resolve(__dirname, './src'),
@@ -19,3 +21,4 @@ export default defineConfig({
     },
   },
 });
+

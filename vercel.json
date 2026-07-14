@@ -5,5 +5,10 @@
   "buildCommand": "npm run build:client",
   "outputDirectory": "client/dist",
   "installCommand": "npm install",
-  "framework": null
+  "framework": null,
+  "env": {
+    "VITE_API_URL": "https://collab-space-43hs.onrender.com",
+    "VITE_WS_URL": "https://collab-space-43hs.onrender.com",
+    "VITE_GOOGLE_CLIENT_ID": "317836952578-gann0nqmvpuqalcje652crd3uuesf5ub.apps.googleusercontent.com"
+  }
 }

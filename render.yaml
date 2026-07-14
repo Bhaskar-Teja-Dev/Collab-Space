@@ -22,6 +22,8 @@ services:
         sync: false
       - key: CLIENT_ORIGIN
         sync: false   # e.g. https://collab-space.vercel.app
+      - key: GOOGLE_CLIENT_ID
+        value: 317836952578-gann0nqmvpuqalcje652crd3uuesf5ub.apps.googleusercontent.com
       - key: MIGRATE_DATABASE_URL
         sync: false
     healthCheckPath: /api/health
