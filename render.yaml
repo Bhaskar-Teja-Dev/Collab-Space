@@ -6,6 +6,7 @@ services:
     plan: free
     buildCommand: |
       npm install
+      npm run build --workspace=shared
       npm run db:generate --workspace=server
       npm run build --workspace=server
     startCommand: node server/dist/index.js
